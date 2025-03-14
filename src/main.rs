@@ -1,7 +1,6 @@
 use dotenv::dotenv;
 use base64::prelude::*;
 use std::error::Error;
-use std::thread;
 use std::time::Duration;
 
 #[cfg(target_os = "linux")]
@@ -9,21 +8,15 @@ use rppal::i2c::I2c;
 
 use bitflags::bitflags;
 
-use axum::{
-    extract::State, response::sse::{Event, Sse}, routing::{get, get_service}, Router
-};
-use std::sync::Arc;
+use std::sync::{Arc, RwLock};
 use tokio::sync::broadcast;
-use tokio_stream::StreamExt;
 use tower_http::services::ServeDir;
-use serde::Serialize;
+use axum::{
+    extract::State, response::sse::{Event, Sse}, routing::{get, get_service}, Router,
+};
 
-#[derive(Clone, Serialize)]
-struct AdcValue {
-    raw_value: i16,
-    voltage: f32,
-    timestamp: u64,
-}
+mod web;
+use web::*;
 
 
 // ADS1115 I2C address when ADDR pin pulled to ground
@@ -38,7 +31,7 @@ async fn send_notification(message: String) -> Result<bool, reqwest::Error> {
     let ntfy_user = std::env::var("NTFY_USER").expect("NTFY_USER must be set.");
     let ntfy_password = std::env::var("NTFY_PASSWORD").expect("NTFY_PASSWORD must be set.");
 
-    println!("NTFY_URL: {}", ntfy_url);
+    // println!("NTFY_URL: {}", ntfy_url);
     
     let client = reqwest::Client::new();
     let response = client
@@ -49,7 +42,7 @@ async fn send_notification(message: String) -> Result<bool, reqwest::Error> {
         .send()
         .await?;
     
-    println!("Response status: {}", response.status());
+    // println!("Response status: {}", response.status());
 
     Ok(true)
 }
@@ -130,7 +123,7 @@ bitflags! {
 }
 
 #[cfg(target_os = "linux")]
-async fn get_adc0_value() -> Result<(i16, f32), Box<dyn Error>> {
+async fn get_adc0_value() -> Result<(i16, f32), Box<dyn Error + Send + Sync>> {
     let mut i2c = I2c::new()?;
     i2c.set_slave_address(ADDR_ADS115)?;
 
@@ -177,7 +170,7 @@ async fn get_adc0_value() -> Result<(i16, f32), Box<dyn Error>> {
 }
 
 #[cfg(target_os = "macos")]
-async fn get_adc0_value() -> Result<(i16, f32), Box<dyn Error>> {
+async fn get_adc0_value() -> Result<(i16, f32), Box<dyn Error + Send + Sync>> {
     // Dummy implementation for macOS
     
     // random between 0 and 20000
@@ -191,15 +184,32 @@ async fn get_adc0_value() -> Result<(i16, f32), Box<dyn Error>> {
 async fn main() -> Result<(), Box<dyn std::error::Error>> {
     dotenv().ok();
 
+    // Default threshold
+    let threshold = RwLock::new(10000);
+
     // Broadcast channel für Messwerte
     let (tx, _) = broadcast::channel::<AdcValue>(100);
-    let tx = Arc::new(tx);
+    
+    // Create app state
+    let app_state = Arc::new(AppState {
+        tx,
+        threshold,
+    });
 
     // Starte ADC Messungen in separatem Task
-    let tx_clone = tx.clone();
+    let state_clone = app_state.clone();
     tokio::spawn(async move {
         loop {
             if let Ok((raw_value, voltage)) = get_adc0_value().await {
+                // Get current threshold
+                let threshold = *state_clone.threshold.read().unwrap();
+                
+                // Send notification if exceeds threshold
+                if i32::from(raw_value) > threshold {
+                    let msg = format!("Wert höher als {}: {}", threshold, raw_value);
+                    let _ = send_notification(msg).await;
+                }
+                
                 let value = AdcValue {
                     raw_value,
                     voltage,
@@ -207,8 +217,9 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
                         .duration_since(std::time::UNIX_EPOCH)
                         .unwrap()
                         .as_secs(),
+                    threshold, // Include current threshold in data
                 };
-                let _ = tx_clone.send(value);
+                let _ = state_clone.tx.send(value);
             }
             tokio::time::sleep(Duration::from_millis(100)).await;
         }
@@ -217,8 +228,9 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     // Setup web server
     let app = Router::new()
         .route("/events", get(sse_handler))
+        .route("/threshold", get(get_threshold).post(set_threshold))
         .nest_service("/", get_service(ServeDir::new("static")))
-        .with_state(tx);
+        .with_state(app_state);
 
     println!("Server running on http://localhost:3000");
     let listener = tokio::net::TcpListener::bind("0.0.0.0:3000").await.unwrap();
@@ -228,9 +240,9 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
 }
 
 async fn sse_handler(
-    State(tx): State<Arc<broadcast::Sender<AdcValue>>>
+    State(state): State<Arc<AppState>>
 ) -> Sse<impl futures::Stream<Item = Result<Event, std::convert::Infallible>>> {
-    let mut rx = tx.subscribe();
+    let mut rx = state.tx.subscribe();
     let stream = async_stream::stream! {
         while let Ok(value) = rx.recv().await {
             yield Ok(Event::default().json_data(value).unwrap());

@@ -6,6 +6,7 @@
     <style>
         .container { max-width: 800px; margin: 0 auto; }
         #chart { width: 100%; height: 400px; }
+        .settings { margin-top: 20px; padding: 15px; border: 1px solid #ddd; border-radius: 5px; }
     </style>
 </head>
 <body>
@@ -16,11 +17,52 @@
             <p>Raw Value: <span id="raw">-</span></p>
             <p>Voltage: <span id="voltage">-</span>V</p>
         </div>
+        
+        <div class="settings">
+            <h3>Settings</h3>
+            <div>
+                <label for="threshold">Notification Threshold:</label>
+                <input type="number" id="threshold" min="0" max="2147483647" value="10000">
+                <button onclick="updateThreshold()">Update</button>
+            </div>
+        </div>
     </div>
+    
     <script>
         const maxPoints = 100;
         let times = [];
         let values = [];
+        let currentThreshold = 10000;
+
+        // Get current threshold on load
+        fetch('/threshold')
+            .then(response => response.json())
+            .then(data => {
+                currentThreshold = data.threshold;
+                document.getElementById('threshold').value = currentThreshold;
+            });
+
+        function updateThreshold() {
+            const newValue = parseInt(document.getElementById('threshold').value);
+            if (isNaN(newValue) || newValue < 0 || newValue > 2147483647) {
+                alert('Please enter a valid threshold value.');
+                return;
+            }
+            
+            fetch('/threshold', {
+                method: 'POST',
+                headers: {
+                    'Content-Type': 'application/json',
+                },
+                body: JSON.stringify({ value: newValue }),
+            })
+            .then(response => response.json())
+            .then(data => {
+                currentThreshold = data.threshold;
+                document.getElementById('threshold').value = currentThreshold;
+                console.log('Threshold updated to:', currentThreshold);
+            });
+        }
 
         const layout = {
             title: 'ADC Readings',
@@ -41,6 +83,12 @@
             // Update current values
             document.getElementById('raw').textContent = data.raw_value;
             document.getElementById('voltage').textContent = data.voltage.toFixed(3);
+            
+            // Update threshold if changed from backend
+            if (data.threshold !== currentThreshold) {
+                currentThreshold = data.threshold;
+                document.getElementById('threshold').value = currentThreshold;
+            }
             
             // Update chart
             times.push(new Date(data.timestamp * 1000));
