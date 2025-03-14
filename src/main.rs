@@ -7,7 +7,6 @@ use std::time::Duration;
 use rppal::i2c::I2c;
 use bitflags::bitflags;
 
-
 // ADS1115 I2C address when ADDR pin pulled to ground
 const ADDR_ADS115:     u16 = 0x48; // Address of first ADS1115 chip  - i2cdetect -y 1 should print 48
 
@@ -112,7 +111,7 @@ bitflags! {
 }
 
 
-async fn get_adc0_value() -> Result<(), Box<dyn Error>> {
+async fn get_adc0_value() -> Result<(i16, f32), Box<dyn Error>> {
     let mut i2c = I2c::new()?;
     i2c.set_slave_address(ADDR_ADS115)?;
 
@@ -155,20 +154,95 @@ async fn get_adc0_value() -> Result<(), Box<dyn Error>> {
     let voltage = (raw_value as f32) * 0.000125;
     println!("Voltage: {:.3}V", voltage);
     
-    Ok(())
+    Ok((raw_value, voltage))
 }
+
+use axum::{
+    routing::{get, get_service},
+    Router,
+    response::sse::{Event, Sse},
+    extract::State,
+};
+use std::sync::Arc;
+use tokio::sync::broadcast;
+use tokio_stream::StreamExt;
+use tower_http::services::ServeDir;
+use serde::Serialize;
+
+#[derive(Clone, Serialize)]
+struct AdcValue {
+    raw_value: i16,
+    voltage: f32,
+    timestamp: u64,
+}
+
+// #[tokio::main]
+// async fn main() -> Result<(), Box<dyn std::error::Error>> {
+//     dotenv().ok();
+
+//     let msg = "Test Msg".to_string();
+//     send_notification(msg).await?;
+
+//     loop {
+//         let (raw_value, voltage) = get_adc0_value().await?;
+//         println!("");
+//     }
+
+//     Ok(())
+// }
 
 #[tokio::main]
 async fn main() -> Result<(), Box<dyn std::error::Error>> {
     dotenv().ok();
 
-    let msg = "Test Msg".to_string();
-    send_notification(msg).await?;
+    // Broadcast channel für Messwerte
+    let (tx, _) = broadcast::channel::<AdcValue>(100);
+    let tx = Arc::new(tx);
 
-    loop {   
-        println!("{:?}", get_adc0_value().await);
-        println!("");
-    }
+    // Starte ADC Messungen in separatem Task
+    let tx_clone = tx.clone();
+    tokio::spawn(async move {
+        loop {
+            if let Ok((raw_value, voltage)) = get_adc0_value().await {
+                let value = AdcValue {
+                    raw_value,
+                    voltage,
+                    timestamp: std::time::SystemTime::now()
+                        .duration_since(std::time::UNIX_EPOCH)
+                        .unwrap()
+                        .as_secs(),
+                };
+                let _ = tx_clone.send(value);
+            }
+            tokio::time::sleep(Duration::from_millis(100)).await;
+        }
+    });
+
+    // Setup web server
+    let app = Router::new()
+        .route("/events", get(sse_handler))
+        .nest_service("/", get_service(ServeDir::new("static")))
+        .with_state(tx);
+
+    println!("Server running on http://localhost:3000");
+    let listener = tokio::net::TcpListener::bind("0.0.0.0:3000").await.unwrap();
+    axum::serve(listener, app).await.unwrap();
+
+    // axum::Server::bind(&"0.0.0.0:3000".parse()?)
+    //     .serve(app.into_make_service())
+    //     .await?;
 
     Ok(())
+}
+
+async fn sse_handler(
+    State(tx): State<Arc<broadcast::Sender<AdcValue>>>
+) -> Sse<impl futures::Stream<Item = Result<Event, std::convert::Infallible>>> {
+    let mut rx = tx.subscribe();
+    let stream = async_stream::stream! {
+        while let Ok(value) = rx.recv().await {
+            yield Ok(Event::default().json_data(value).unwrap());
+        }
+    };
+    Sse::new(stream)
 }
