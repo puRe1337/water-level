@@ -36,7 +36,7 @@ async fn send_notification(message: String) -> Result<bool, reqwest::Error> {
     // println!("NTFY_URL: {}", ntfy_url);
     
     let client = reqwest::Client::new();
-    let _esponse = client
+    let _response = client
         .post(ntfy_url)
         .header("Authorization", format!("Basic {}", BASE64_STANDARD.encode(format!("{}:{}", ntfy_user, ntfy_password).as_bytes())))
         .header("Content-Type", "text/plain")
