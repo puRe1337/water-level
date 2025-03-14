@@ -1,0 +1,61 @@
+<!DOCTYPE html>
+<html>
+<head>
+    <title>Water Level Monitor</title>
+    <script src="https://cdn.plot.ly/plotly-latest.min.js"></script>
+    <style>
+        .container { max-width: 800px; margin: 0 auto; }
+        #chart { width: 100%; height: 400px; }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <h1>Water Level Monitor</h1>
+        <div id="chart"></div>
+        <div id="current">
+            <p>Raw Value: <span id="raw">-</span></p>
+            <p>Voltage: <span id="voltage">-</span>V</p>
+        </div>
+    </div>
+    <script>
+        const maxPoints = 100;
+        let times = [];
+        let values = [];
+
+        const layout = {
+            title: 'ADC Readings',
+            xaxis: { title: 'Time' },
+            yaxis: { title: 'Voltage (V)' }
+        };
+
+        Plotly.newPlot('chart', [{
+            x: times,
+            y: values,
+            type: 'line'
+        }], layout);
+
+        const sse = new EventSource('/events');
+        sse.onmessage = (event) => {
+            const data = JSON.parse(event.data);
+            
+            // Update current values
+            document.getElementById('raw').textContent = data.raw_value;
+            document.getElementById('voltage').textContent = data.voltage.toFixed(3);
+            
+            // Update chart
+            times.push(new Date(data.timestamp * 1000));
+            values.push(data.voltage);
+            
+            if (times.length > maxPoints) {
+                times.shift();
+                values.shift();
+            }
+            
+            Plotly.update('chart', {
+                x: [times],
+                y: [values]
+            });
+        };
+    </script>
+</body>
+</html>
