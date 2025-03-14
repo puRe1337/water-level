@@ -1,12 +1,13 @@
-use dotenv::dotenv;
-use base64::prelude::*;
-use std::error::Error;
-use std::time::Duration;
-
 #[cfg(target_os = "linux")]
 mod ads_constants;
 #[cfg(target_os = "linux")]
 mod ads_config;
+mod web;
+
+use dotenv::dotenv;
+use base64::prelude::*;
+use std::error::Error;
+use std::time::Duration;
 
 #[cfg(target_os = "linux")]
 use {
@@ -21,8 +22,6 @@ use tower_http::services::ServeDir;
 use axum::{
     extract::State, response::sse::{Event, Sse}, routing::{get, get_service}, Router,
 };
-
-mod web;
 use web::*;
 
 async fn send_notification(message: String) -> Result<bool, reqwest::Error> {
