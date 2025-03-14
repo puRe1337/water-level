@@ -1,8 +1,5 @@
 use std::sync::{Arc, RwLock};
-use axum::{
-    extract::State, response::sse::{Event, Sse}, routing::{get, get_service}, Router,
-    Json, extract::Query
-};
+use axum::{extract::State, Json};
 use tokio::sync::broadcast;
 use serde::{Deserialize, Serialize};
 

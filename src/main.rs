@@ -2,12 +2,12 @@ use dotenv::dotenv;
 use base64::prelude::*;
 use std::error::Error;
 use std::time::Duration;
-use std::thread;
 
 #[cfg(target_os = "linux")]
-use rppal::i2c::I2c;
-
-use bitflags::bitflags;
+use {
+    std::thread,
+    rppal::i2c::I2c
+};
 
 use std::sync::{Arc, RwLock};
 use tokio::sync::broadcast;
