@@ -129,7 +129,6 @@ bitflags! {
 
 
 async fn get_adc0_value() -> Result<(i16, f32), Box<dyn Error>> {
-async fn get_adc0_value() -> Result<(i16, f32), Box<dyn Error>> {
     let mut i2c = I2c::new()?;
     i2c.set_slave_address(ADDR_ADS115)?;
 
