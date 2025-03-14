@@ -7,6 +7,23 @@ use std::time::Duration;
 use rppal::i2c::I2c;
 use bitflags::bitflags;
 
+use axum::{
+    extract::State, response::sse::{Event, Sse}, routing::{get, get_service}, Router
+};
+use std::sync::Arc;
+use tokio::sync::broadcast;
+use tokio_stream::StreamExt;
+use tower_http::services::ServeDir;
+use serde::Serialize;
+
+#[derive(Clone, Serialize)]
+struct AdcValue {
+    raw_value: i16,
+    voltage: f32,
+    timestamp: u64,
+}
+
+
 // ADS1115 I2C address when ADDR pin pulled to ground
 const ADDR_ADS115:     u16 = 0x48; // Address of first ADS1115 chip  - i2cdetect -y 1 should print 48
 
@@ -112,6 +129,7 @@ bitflags! {
 
 
 async fn get_adc0_value() -> Result<(i16, f32), Box<dyn Error>> {
+async fn get_adc0_value() -> Result<(i16, f32), Box<dyn Error>> {
     let mut i2c = I2c::new()?;
     i2c.set_slave_address(ADDR_ADS115)?;
 
@@ -155,25 +173,6 @@ async fn get_adc0_value() -> Result<(i16, f32), Box<dyn Error>> {
     println!("Voltage: {:.3}V", voltage);
     
     Ok((raw_value, voltage))
-}
-
-use axum::{
-    routing::{get, get_service},
-    Router,
-    response::sse::{Event, Sse},
-    extract::State,
-};
-use std::sync::Arc;
-use tokio::sync::broadcast;
-use tokio_stream::StreamExt;
-use tower_http::services::ServeDir;
-use serde::Serialize;
-
-#[derive(Clone, Serialize)]
-struct AdcValue {
-    raw_value: i16,
-    voltage: f32,
-    timestamp: u64,
 }
 
 // #[tokio::main]
@@ -227,10 +226,6 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     println!("Server running on http://localhost:3000");
     let listener = tokio::net::TcpListener::bind("0.0.0.0:3000").await.unwrap();
     axum::serve(listener, app).await.unwrap();
-
-    // axum::Server::bind(&"0.0.0.0:3000".parse()?)
-    //     .serve(app.into_make_service())
-    //     .await?;
 
     Ok(())
 }
