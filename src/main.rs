@@ -4,7 +4,9 @@ use std::error::Error;
 use std::thread;
 use std::time::Duration;
 
+#[cfg(target_os = "linux")]
 use rppal::i2c::I2c;
+
 use bitflags::bitflags;
 
 use axum::{
@@ -127,7 +129,7 @@ bitflags! {
     }
 }
 
-
+#[cfg(target_os = "linux")]
 async fn get_adc0_value() -> Result<(i16, f32), Box<dyn Error>> {
     let mut i2c = I2c::new()?;
     i2c.set_slave_address(ADDR_ADS115)?;
@@ -174,20 +176,16 @@ async fn get_adc0_value() -> Result<(i16, f32), Box<dyn Error>> {
     Ok((raw_value, voltage))
 }
 
-// #[tokio::main]
-// async fn main() -> Result<(), Box<dyn std::error::Error>> {
-//     dotenv().ok();
+#[cfg(target_os = "macos")]
+async fn get_adc0_value() -> Result<(i16, f32), Box<dyn Error>> {
+    // Dummy implementation for macOS
+    
+    // random between 0 and 20000
+    let raw_value = rand::random::<i16>() % 20000;
+    let voltage = (raw_value as f32) * 0.000125;
 
-//     let msg = "Test Msg".to_string();
-//     send_notification(msg).await?;
-
-//     loop {
-//         let (raw_value, voltage) = get_adc0_value().await?;
-//         println!("");
-//     }
-
-//     Ok(())
-// }
+    Ok((raw_value, voltage))
+}
 
 #[tokio::main]
 async fn main() -> Result<(), Box<dyn std::error::Error>> {
