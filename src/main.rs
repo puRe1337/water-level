@@ -4,9 +4,15 @@ use std::error::Error;
 use std::time::Duration;
 
 #[cfg(target_os = "linux")]
+mod ads_constants;
+#[cfg(target_os = "linux")]
+mod ads_config;
+
+#[cfg(target_os = "linux")]
 use {
     std::thread,
-    rppal::i2c::I2c
+    rppal::i2c::I2c,
+    ads_constants::*
 };
 
 use std::sync::{Arc, RwLock};
@@ -16,17 +22,8 @@ use axum::{
     extract::State, response::sse::{Event, Sse}, routing::{get, get_service}, Router,
 };
 
-mod ads_config;
 mod web;
 use web::*;
-
-
-// ADS1115 I2C address when ADDR pin pulled to ground
-const ADDR_ADS115:     u16 = 0x48; // Address of first ADS1115 chip  - i2cdetect -y 1 should print 48
-
-// ADS1115 register addresses.
-const REG_CONFIGURATION: u8 = 0x01;
-const REG_CONVERSION:    u8 = 0x00;
 
 async fn send_notification(message: String) -> Result<bool, reqwest::Error> {
     let ntfy_url = std::env::var("NTFY_URL").expect("NTFY_URL must be set.");
