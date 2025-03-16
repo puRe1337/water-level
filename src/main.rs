@@ -103,6 +103,9 @@ async fn get_adc0_value() -> Result<(i16, f32), Box<dyn Error + Send + Sync>> {
     let raw_value = rand::random::<i16>() % 20000;
     let voltage = (raw_value as f32) * 0.000125;
 
+    // wait 1s
+    tokio::time::sleep(Duration::from_secs(1)).await;
+
     Ok((raw_value, voltage))
 }
 
